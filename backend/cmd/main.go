@@ -3,6 +3,7 @@ package main
 import (
 	"edu-web-backend/config"
 	"edu-web-backend/internal/handlers"
+	"edu-web-backend/internal/middleware"
 	"edu-web-backend/internal/repository"
 	"log"
 
@@ -26,6 +27,11 @@ func main() {
 		log.Fatalf("Migration error: %v", err)
 	}
 	log.Println("Database migrated successfully")
+
+	if err := db.MigrateAuth(); err != nil {
+		log.Fatalf("Auth migration error: %v", err)
+	}
+	log.Println("Auth tables migrated successfully")
 
 	if err := db.SeedData(); err != nil {
 		log.Printf("Seed warning: %v", err)
@@ -59,6 +65,21 @@ func main() {
 		api.POST("/qrcodes/generate", h.GenerateQR)
 		api.GET("/chat/:session_id", h.GetChatHistory)
 		api.POST("/chat", h.SendChat)
+
+		auth := api.Group("/auth")
+		{
+			auth.POST("/register", h.Register)
+			auth.POST("/login", h.Login)
+			auth.GET("/me", middleware.AuthRequired(), h.GetMe)
+		}
+
+		protected := api.Group("")
+		protected.Use(middleware.AuthRequired())
+		{
+			protected.POST("/messages", h.SendDirectMessage)
+			protected.GET("/messages/:other_user_id", h.GetDirectMessages)
+			protected.GET("/users", h.GetUsers)
+		}
 	}
 
 	log.Printf("Server running on port %s", cfg.Port)

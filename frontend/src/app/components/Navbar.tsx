@@ -1,16 +1,38 @@
 'use client'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { isLoggedIn, getUser, logout } from '@/lib/auth'
 
 export default function Navbar() {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [loggedIn, setLoggedIn] = useState(false)
+  const [displayName, setDisplayName] = useState('')
+
+  useEffect(() => {
+    const status = isLoggedIn()
+    setLoggedIn(status)
+    if (status) {
+      const user = getUser()
+      setDisplayName(user?.display_name || user?.username || '')
+    }
+  }, [])
+
+  function handleLogout() {
+    logout()
+    setLoggedIn(false)
+    setDisplayName('')
+    router.push('/')
+  }
 
   const links = [
     { href: '/', label: 'Trang chu', icon: '🏠' },
-    { href: '/videos', label: 'Video hoc tap', icon: '🎥' },
+    { href: '/videos', label: 'Video hoc tap', icon: '🎬' },
     { href: '/audios', label: 'Am thanh song nao', icon: '🎵' },
     { href: '/chatbot', label: 'Buddy AI', icon: '🤖' },
     { href: '/qrcodes', label: 'Ma QR', icon: '📱' },
+    { href: '/messages', label: 'Tin nhan', icon: '💬' },
   ]
 
   return (
@@ -30,6 +52,32 @@ export default function Navbar() {
               </Link>
             ))}
           </div>
+          <div className="hidden md:flex items-center gap-2">
+            {loggedIn ? (
+              <>
+                <span className="text-sm text-blue-200 px-2">
+                  Xin chao, <span className="text-white font-semibold">{displayName}</span>
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="px-3 py-1.5 text-sm font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
+                >
+                  Dang xuat
+                </button>
+              </>
+            ) : (
+              <>
+                <Link href="/login"
+                  className="px-3 py-1.5 text-sm font-medium hover:bg-white/20 rounded-lg transition-colors">
+                  Dang nhap
+                </Link>
+                <Link href="/register"
+                  className="px-3 py-1.5 text-sm font-medium bg-white text-blue-700 hover:bg-blue-50 rounded-lg transition-colors">
+                  Dang ky
+                </Link>
+              </>
+            )}
+          </div>
           <button onClick={() => setOpen(!open)} className="md:hidden p-2 rounded-lg hover:bg-white/20">
             {open ? '✕' : '☰'}
           </button>
@@ -42,6 +90,32 @@ export default function Navbar() {
                 <span>{l.icon}</span><span>{l.label}</span>
               </Link>
             ))}
+            <div className="border-t border-white/20 mt-2 pt-2 flex flex-col gap-1">
+              {loggedIn ? (
+                <>
+                  <span className="px-4 py-1 text-sm text-blue-200">
+                    Xin chao, <span className="text-white font-semibold">{displayName}</span>
+                  </span>
+                  <button
+                    onClick={() => { handleLogout(); setOpen(false) }}
+                    className="text-left px-4 py-2 rounded-lg hover:bg-white/20 text-sm font-medium"
+                  >
+                    Dang xuat
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" onClick={() => setOpen(false)}
+                    className="px-4 py-2 rounded-lg hover:bg-white/20 text-sm font-medium">
+                    Dang nhap
+                  </Link>
+                  <Link href="/register" onClick={() => setOpen(false)}
+                    className="px-4 py-2 rounded-lg hover:bg-white/20 text-sm font-medium">
+                    Dang ky
+                  </Link>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>

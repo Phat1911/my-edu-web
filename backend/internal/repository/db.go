@@ -428,3 +428,126 @@ func (db *DB) SeedScenarios() error {
 	}
 	return nil
 }
+
+func (db *DB) MigrateAuth() error {
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS users (
+			id SERIAL PRIMARY KEY,
+			username VARCHAR(30) UNIQUE NOT NULL,
+			email VARCHAR(255) UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			display_name VARCHAR(100) NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS direct_messages (
+			id SERIAL PRIMARY KEY,
+			sender_id INT NOT NULL REFERENCES users(id),
+			receiver_id INT NOT NULL REFERENCES users(id),
+			content TEXT NOT NULL,
+			is_read BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT NOW()
+		)`,
+	}
+	for _, q := range queries {
+		if _, err := db.conn.Exec(q); err != nil {
+			return fmt.Errorf("auth migration error: %w", err)
+		}
+	}
+	return nil
+}
+
+func (db *DB) CreateUser(username, email, passwordHash, displayName string) (*models.User, error) {
+	var u models.User
+	err := db.conn.QueryRow(
+		`INSERT INTO users (username, email, password_hash, display_name) VALUES ($1, $2, $3, $4) RETURNING id, username, email, password_hash, display_name, created_at`,
+		username, email, passwordHash, displayName,
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.DisplayName, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (db *DB) GetUserByUsername(username string) (*models.User, error) {
+	var u models.User
+	err := db.conn.QueryRow(
+		`SELECT id, username, email, password_hash, display_name, created_at FROM users WHERE username = $1`,
+		username,
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.DisplayName, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (db *DB) GetUserByID(id int) (*models.User, error) {
+	var u models.User
+	err := db.conn.QueryRow(
+		`SELECT id, username, email, password_hash, display_name, created_at FROM users WHERE id = $1`,
+		id,
+	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.DisplayName, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (db *DB) SaveMessage(senderID, receiverID int, content string) (*models.DirectMessage, error) {
+	var m models.DirectMessage
+	err := db.conn.QueryRow(
+		`INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING id, sender_id, receiver_id, content, is_read, created_at`,
+		senderID, receiverID, content,
+	).Scan(&m.ID, &m.SenderID, &m.ReceiverID, &m.Content, &m.IsRead, &m.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (db *DB) GetConversation(userID, otherUserID int) ([]models.DirectMessage, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, sender_id, receiver_id, content, is_read, created_at FROM direct_messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY created_at ASC`,
+		userID, otherUserID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var msgs []models.DirectMessage
+	for rows.Next() {
+		var m models.DirectMessage
+		rows.Scan(&m.ID, &m.SenderID, &m.ReceiverID, &m.Content, &m.IsRead, &m.CreatedAt)
+		msgs = append(msgs, m)
+	}
+	if msgs == nil {
+		msgs = []models.DirectMessage{}
+	}
+	return msgs, nil
+}
+
+func (db *DB) GetUserList(excludeID int) ([]models.User, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, username, email, display_name, created_at FROM users WHERE id != $1 ORDER BY username ASC`,
+		excludeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []models.User
+	for rows.Next() {
+		var u models.User
+		rows.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.CreatedAt)
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []models.User{}
+	}
+	return users, nil
+}
