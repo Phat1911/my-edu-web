@@ -57,9 +57,8 @@ export default function MessagesPage() {
   async function loadUsers() {
     const me = getUser()
     try {
-      const data = await api.get<{ data?: User[] } | User[]>('/users')
-      const list = (data as { data?: User[] }).data ?? (data as User[])
-      const others = Array.isArray(list) ? list.filter((u: User) => u.id !== me?.id) : []
+      const data = await api.get<{ data: User[] }>('/users')
+      const others = data.data.filter((u: User) => u.id !== me?.id)
       setUsers(others)
       setError('')
     } catch (err) {
@@ -76,26 +75,19 @@ export default function MessagesPage() {
     if (!authChecking) loadUsers()
   }, [authChecking])
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  // Fetch messages for a given user - used directly and in poll interval
   async function loadMessages(userId: number) {
     try {
-      const data = await api.get<{ data?: Message[] } | Message[]>(`/messages/${userId}`)
-      const msgs = (data as { data?: Message[] }).data ?? (data as Message[])
-      setMessages(Array.isArray(msgs) ? msgs : [])
+      const data = await api.get<{ data: Message[] }>(`/messages/${userId}`)
+      setMessages(data.data)
     } catch {
       // silent poll failure - don't disrupt UX
     }
   }
 
-  // Poll messages every 3s when a user is selected
   useEffect(() => {
     if (!selectedUser) return
     loadMessages(selectedUser.id)
-    pollRef.current = setInterval(() => loadMessages(selectedUser.id), 3000)
+    pollRef.current = setInterval(() => loadMessages(selectedUser.id), 2000)
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
     }
