@@ -1,34 +1,38 @@
 package repository
 
 import (
-	"database/sql"
+	"context"
 	"edu-web-backend/internal/models"
+	"errors"
 	"fmt"
 	"strings"
 
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DB struct {
-	conn *sql.DB
+	pool *pgxpool.Pool
 }
 
 func NewDB(dbURL string) (*DB, error) {
-	conn, err := sql.Open("postgres", dbURL)
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open db: %w", err)
+		return nil, fmt.Errorf("failed to create pool: %w", err)
 	}
-	if err := conn.Ping(); err != nil {
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("failed to ping db: %w", err)
 	}
-	return &DB{conn: conn}, nil
+	return &DB{pool: pool}, nil
 }
 
 func (db *DB) Close() {
-	db.conn.Close()
+	db.pool.Close()
 }
 
-func (db *DB) Migrate() error {
+func (db *DB) Migrate(ctx context.Context) error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS videos (
 			id SERIAL PRIMARY KEY,
@@ -76,20 +80,20 @@ func (db *DB) Migrate() error {
 		)`,
 	}
 	for _, q := range queries {
-		if _, err := db.conn.Exec(q); err != nil {
+		if _, err := db.pool.Exec(ctx, q); err != nil {
 			return fmt.Errorf("migration error: %w", err)
 		}
 	}
 	return nil
 }
 
-func (db *DB) SeedData() error {
+func (db *DB) SeedData(ctx context.Context) error {
 	var count int
-	db.conn.QueryRow("SELECT COUNT(*) FROM videos").Scan(&count)
+	db.pool.QueryRow(ctx, "SELECT COUNT(*) FROM videos").Scan(&count)
 	if count > 0 {
 		return nil
 	}
-
+ 
 	videos := []models.Video{
 		{
 			Title:       "Mẹo học tập hiệu quả - Phần 1",
@@ -121,7 +125,7 @@ func (db *DB) SeedData() error {
 	}
 
 	for _, v := range videos {
-		_, err := db.conn.Exec(
+		_, err := db.pool.Exec(ctx,
 			`INSERT INTO videos (title, description, drive_url, embed_url, thumbnail, category, order_num) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 			v.Title, v.Description, v.DriveURL, v.EmbedURL, v.Thumbnail, v.Category, v.Order,
 		)
@@ -161,7 +165,7 @@ func (db *DB) SeedData() error {
 	}
 
 	for _, a := range audios {
-		_, err := db.conn.Exec(
+		_, err := db.pool.Exec(ctx,
 			`INSERT INTO audios (title, description, drive_url, embed_url, category, duration, order_num) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 			a.Title, a.Description, a.DriveURL, a.EmbedURL, a.Category, a.Duration, a.Order,
 		)
@@ -184,7 +188,7 @@ func (db *DB) SeedData() error {
 	}
 
 	for _, s := range scenarios {
-		db.conn.Exec(
+		db.pool.Exec(ctx,
 			`INSERT INTO psych_scenarios (category, trigger, response, tips) VALUES ($1,$2,$3,$4)`,
 			s.category, s.trigger, s.response, s.tips,
 		)
@@ -193,8 +197,8 @@ func (db *DB) SeedData() error {
 	return nil
 }
 
-func (db *DB) GetAllVideos() ([]models.Video, error) {
-	rows, err := db.conn.Query(`SELECT id, title, description, drive_url, embed_url, thumbnail, category, order_num, created_at FROM videos ORDER BY order_num ASC`)
+func (db *DB) GetAllVideos(ctx context.Context) ([]models.Video, error) {
+	rows, err := db.pool.Query(ctx, `SELECT id, title, description, drive_url, embed_url, thumbnail, category, order_num, created_at FROM videos ORDER BY order_num ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -202,14 +206,19 @@ func (db *DB) GetAllVideos() ([]models.Video, error) {
 	var videos []models.Video
 	for rows.Next() {
 		var v models.Video
-		rows.Scan(&v.ID, &v.Title, &v.Description, &v.DriveURL, &v.EmbedURL, &v.Thumbnail, &v.Category, &v.Order, &v.CreatedAt)
+		if err := rows.Scan(&v.ID, &v.Title, &v.Description, &v.DriveURL, &v.EmbedURL, &v.Thumbnail, &v.Category, &v.Order, &v.CreatedAt); err != nil {
+			return nil, err
+		}
 		videos = append(videos, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return videos, nil
 }
 
-func (db *DB) GetAllAudios() ([]models.Audio, error) {
-	rows, err := db.conn.Query(`SELECT id, title, description, drive_url, embed_url, category, duration, order_num, created_at FROM audios ORDER BY order_num ASC`)
+func (db *DB) GetAllAudios(ctx context.Context) ([]models.Audio, error) {
+	rows, err := db.pool.Query(ctx, `SELECT id, title, description, drive_url, embed_url, category, duration, order_num, created_at FROM audios ORDER BY order_num ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -217,14 +226,19 @@ func (db *DB) GetAllAudios() ([]models.Audio, error) {
 	var audios []models.Audio
 	for rows.Next() {
 		var a models.Audio
-		rows.Scan(&a.ID, &a.Title, &a.Description, &a.DriveURL, &a.EmbedURL, &a.Category, &a.Duration, &a.Order, &a.CreatedAt)
+		if err := rows.Scan(&a.ID, &a.Title, &a.Description, &a.DriveURL, &a.EmbedURL, &a.Category, &a.Duration, &a.Order, &a.CreatedAt); err != nil {
+			return nil, err
+		}
 		audios = append(audios, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return audios, nil
 }
 
-func (db *DB) GetAllQRCodes() ([]models.QRCode, error) {
-	rows, err := db.conn.Query(`SELECT id, label, target_url, type, qr_data, created_at FROM qrcodes ORDER BY id ASC`)
+func (db *DB) GetAllQRCodes(ctx context.Context) ([]models.QRCode, error) {
+	rows, err := db.pool.Query(ctx, `SELECT id, label, target_url, type, qr_data, created_at FROM qrcodes ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -232,31 +246,36 @@ func (db *DB) GetAllQRCodes() ([]models.QRCode, error) {
 	var qrs []models.QRCode
 	for rows.Next() {
 		var q models.QRCode
-		rows.Scan(&q.ID, &q.Label, &q.TargetURL, &q.Type, &q.QRData, &q.CreatedAt)
+		if err := rows.Scan(&q.ID, &q.Label, &q.TargetURL, &q.Type, &q.QRData, &q.CreatedAt); err != nil {
+			return nil, err
+		}
 		qrs = append(qrs, q)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return qrs, nil
 }
 
-func (db *DB) SaveQRCode(label, targetURL, qrType, qrData string) (*models.QRCode, error) {
+func (db *DB) SaveQRCode(ctx context.Context, label, targetURL, qrType, qrData string) (*models.QRCode, error) {
 	var q models.QRCode
-	err := db.conn.QueryRow(
+	err := db.pool.QueryRow(ctx,
 		`INSERT INTO qrcodes (label, target_url, type, qr_data) VALUES ($1,$2,$3,$4) RETURNING id, label, target_url, type, qr_data, created_at`,
 		label, targetURL, qrType, qrData,
 	).Scan(&q.ID, &q.Label, &q.TargetURL, &q.Type, &q.QRData, &q.CreatedAt)
 	return &q, err
 }
 
-func (db *DB) SaveChatMessage(sessionID, role, content string) error {
-	_, err := db.conn.Exec(
+func (db *DB) SaveChatMessage(ctx context.Context, sessionID, role, content string) error {
+	_, err := db.pool.Exec(ctx,
 		`INSERT INTO chat_messages (session_id, role, content) VALUES ($1,$2,$3)`,
 		sessionID, role, content,
 	)
 	return err
 }
 
-func (db *DB) GetChatHistory(sessionID string) ([]models.ChatMessage, error) {
-	rows, err := db.conn.Query(
+func (db *DB) GetChatHistory(ctx context.Context, sessionID string) ([]models.ChatMessage, error) {
+	rows, err := db.pool.Query(ctx,
 		`SELECT id, session_id, role, content, created_at FROM chat_messages WHERE session_id=$1 ORDER BY created_at ASC LIMIT 50`,
 		sessionID,
 	)
@@ -267,38 +286,49 @@ func (db *DB) GetChatHistory(sessionID string) ([]models.ChatMessage, error) {
 	var msgs []models.ChatMessage
 	for rows.Next() {
 		var m models.ChatMessage
-		rows.Scan(&m.ID, &m.SessionID, &m.Role, &m.Content, &m.CreatedAt)
+		if err := rows.Scan(&m.ID, &m.SessionID, &m.Role, &m.Content, &m.CreatedAt); err != nil {
+			return nil, err
+		}
 		msgs = append(msgs, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return msgs, nil
 }
 
-func (db *DB) GetScenarioByKeyword(keyword string) (*models.PsychScenario, error) {
+func (db *DB) GetScenarioByKeyword(ctx context.Context, keyword string) (*models.PsychScenario, error) {
 	var s models.PsychScenario
-	err := db.conn.QueryRow(
+	err := db.pool.QueryRow(ctx,
 		`SELECT id, category, trigger, response, tips FROM psych_scenarios WHERE trigger ILIKE $1 LIMIT 1`,
 		"%"+keyword+"%",
 	).Scan(&s.ID, &s.Category, &s.Trigger, &s.Response, &s.Tips)
-	if err == sql.ErrNoRows {
-		return nil, nil
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
 	}
-	return &s, err
+	return &s, nil
 }
 
-func (db *DB) GetScenarioByCategory(category string) (*models.PsychScenario, error) {
+func (db *DB) GetScenarioByCategory(ctx context.Context, category string) (*models.PsychScenario, error) {
 	var s models.PsychScenario
-	err := db.conn.QueryRow(
+	err := db.pool.QueryRow(ctx,
 		`SELECT id, category, trigger, response, tips FROM psych_scenarios WHERE category = $1 ORDER BY RANDOM() LIMIT 1`,
 		category,
 	).Scan(&s.ID, &s.Category, &s.Trigger, &s.Response, &s.Tips)
-	if err == sql.ErrNoRows {
-		return nil, nil
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
 	}
-	return &s, err
+	return &s, nil
 }
 
-func (db *DB) GetScenariosByCategory(category string) ([]models.PsychScenario, error) {
-	rows, err := db.conn.Query(
+func (db *DB) GetScenariosByCategory(ctx context.Context, category string) ([]models.PsychScenario, error) {
+	rows, err := db.pool.Query(ctx,
 		`SELECT id, category, trigger, response, tips FROM psych_scenarios WHERE category = $1`,
 		category,
 	)
@@ -309,20 +339,27 @@ func (db *DB) GetScenariosByCategory(category string) ([]models.PsychScenario, e
 	var scenarios []models.PsychScenario
 	for rows.Next() {
 		var s models.PsychScenario
-		rows.Scan(&s.ID, &s.Category, &s.Trigger, &s.Response, &s.Tips)
+		if err := rows.Scan(&s.ID, &s.Category, &s.Trigger, &s.Response, &s.Tips); err != nil {
+			return nil, err
+		}
 		scenarios = append(scenarios, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return scenarios, nil
 }
 
-func (db *DB) SeedScenarios() error {
+func (db *DB) SeedScenarios(ctx context.Context) error {
 	var count int
-	db.conn.QueryRow("SELECT COUNT(*) FROM psych_scenarios").Scan(&count)
+	if err := db.pool.QueryRow(ctx, "SELECT COUNT(*) FROM psych_scenarios").Scan(&count); err != nil {
+		return fmt.Errorf("seed scenarios count: %w", err)
+	}
 	if count >= 50 {
 		return nil
 	}
 
-	db.conn.Exec("DELETE FROM psych_scenarios")
+	db.pool.Exec(ctx, "DELETE FROM psych_scenarios")
 
 	scenarios := []struct {
 		category string
@@ -421,15 +458,29 @@ func (db *DB) SeedScenarios() error {
 		valueArgs = append(valueArgs, s.category, s.trigger, s.response, s.tips)
 	}
 
-	query := `INSERT INTO psych_scenarios (category, trigger, response, tips) VALUES ` + strings.Join(valueStrings, ",")
-	_, err := db.conn.Exec(query, valueArgs...)
+	// Wrap DELETE + INSERT in a transaction so a failed INSERT does not leave an empty table.
+	tx, err := db.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("seed scenarios begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, "DELETE FROM psych_scenarios"); err != nil {
+		return fmt.Errorf("seed scenarios delete: %w", err)
+	}
+
+	query := `INSERT INTO psych_scenarios (category, trigger, response, tips) VALUES ` + strings.Join(valueStrings, ",")
+	if _, err := tx.Exec(ctx, query, valueArgs...); err != nil {
 		return fmt.Errorf("bulk scenario insert failed: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("seed scenarios commit: %w", err)
 	}
 	return nil
 }
 
-func (db *DB) MigrateAuth() error {
+func (db *DB) MigrateAuth(ctx context.Context) error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id SERIAL PRIMARY KEY,
@@ -449,16 +500,16 @@ func (db *DB) MigrateAuth() error {
 		)`,
 	}
 	for _, q := range queries {
-		if _, err := db.conn.Exec(q); err != nil {
+		if _, err := db.pool.Exec(ctx, q); err != nil {
 			return fmt.Errorf("auth migration error: %w", err)
 		}
 	}
 	return nil
 }
 
-func (db *DB) CreateUser(username, email, passwordHash, displayName string) (*models.User, error) {
+func (db *DB) CreateUser(ctx context.Context, username, email, passwordHash, displayName string) (*models.User, error) {
 	var u models.User
-	err := db.conn.QueryRow(
+	err := db.pool.QueryRow(ctx,
 		`INSERT INTO users (username, email, password_hash, display_name) VALUES ($1, $2, $3, $4) RETURNING id, username, email, password_hash, display_name, created_at`,
 		username, email, passwordHash, displayName,
 	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.DisplayName, &u.CreatedAt)
@@ -468,39 +519,39 @@ func (db *DB) CreateUser(username, email, passwordHash, displayName string) (*mo
 	return &u, nil
 }
 
-func (db *DB) GetUserByUsername(username string) (*models.User, error) {
+func (db *DB) GetUserByUsername(ctx context.Context, username string) (*models.User, error) {
 	var u models.User
-	err := db.conn.QueryRow(
+	err := db.pool.QueryRow(ctx,
 		`SELECT id, username, email, password_hash, display_name, created_at FROM users WHERE username = $1`,
 		username,
 	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.DisplayName, &u.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &u, nil
 }
 
-func (db *DB) GetUserByID(id int) (*models.User, error) {
+func (db *DB) GetUserByID(ctx context.Context, id int) (*models.User, error) {
 	var u models.User
-	err := db.conn.QueryRow(
+	err := db.pool.QueryRow(ctx,
 		`SELECT id, username, email, password_hash, display_name, created_at FROM users WHERE id = $1`,
 		id,
 	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.DisplayName, &u.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &u, nil
 }
 
-func (db *DB) SaveMessage(senderID, receiverID int, content string) (*models.DirectMessage, error) {
+func (db *DB) SaveMessage(ctx context.Context, senderID, receiverID int, content string) (*models.DirectMessage, error) {
 	var m models.DirectMessage
-	err := db.conn.QueryRow(
+	err := db.pool.QueryRow(ctx,
 		`INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING id, sender_id, receiver_id, content, is_read, created_at`,
 		senderID, receiverID, content,
 	).Scan(&m.ID, &m.SenderID, &m.ReceiverID, &m.Content, &m.IsRead, &m.CreatedAt)
@@ -510,8 +561,8 @@ func (db *DB) SaveMessage(senderID, receiverID int, content string) (*models.Dir
 	return &m, nil
 }
 
-func (db *DB) GetConversation(userID, otherUserID int) ([]models.DirectMessage, error) {
-	rows, err := db.conn.Query(
+func (db *DB) GetConversation(ctx context.Context, userID, otherUserID int) ([]models.DirectMessage, error) {
+	rows, err := db.pool.Query(ctx,
 		`SELECT id, sender_id, receiver_id, content, is_read, created_at FROM direct_messages WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY created_at ASC`,
 		userID, otherUserID,
 	)
@@ -522,8 +573,13 @@ func (db *DB) GetConversation(userID, otherUserID int) ([]models.DirectMessage, 
 	var msgs []models.DirectMessage
 	for rows.Next() {
 		var m models.DirectMessage
-		rows.Scan(&m.ID, &m.SenderID, &m.ReceiverID, &m.Content, &m.IsRead, &m.CreatedAt)
+		if err := rows.Scan(&m.ID, &m.SenderID, &m.ReceiverID, &m.Content, &m.IsRead, &m.CreatedAt); err != nil {
+			return nil, err
+		}
 		msgs = append(msgs, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	if msgs == nil {
 		msgs = []models.DirectMessage{}
@@ -531,8 +587,8 @@ func (db *DB) GetConversation(userID, otherUserID int) ([]models.DirectMessage, 
 	return msgs, nil
 }
 
-func (db *DB) GetUserList(excludeID int) ([]models.User, error) {
-	rows, err := db.conn.Query(
+func (db *DB) GetUserList(ctx context.Context, excludeID int) ([]models.User, error) {
+	rows, err := db.pool.Query(ctx,
 		`SELECT id, username, email, display_name, created_at FROM users WHERE id != $1 ORDER BY username ASC`,
 		excludeID,
 	)
@@ -543,8 +599,13 @@ func (db *DB) GetUserList(excludeID int) ([]models.User, error) {
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		rows.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.CreatedAt)
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.CreatedAt); err != nil {
+			return nil, err
+		}
 		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	if users == nil {
 		users = []models.User{}

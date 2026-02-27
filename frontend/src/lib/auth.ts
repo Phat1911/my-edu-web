@@ -1,5 +1,4 @@
-const TOKEN_KEY = 'eduhub_token'
-const USER_KEY = 'eduhub_user'
+const USER_KEY = '__eh_u'
 
 export interface User {
   id: number
@@ -8,56 +7,77 @@ export interface User {
   display_name: string
 }
 
-export function saveToken(token: string): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(TOKEN_KEY, token)
-  }
+function encode(value: string): string {
+  if (typeof window === 'undefined') return value
+  try { return btoa(encodeURIComponent(value)) } catch { return value }
 }
 
-export function getToken(): string | null {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem(TOKEN_KEY)
-  }
-  return null
-}
-
-export function removeToken(): void {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(TOKEN_KEY)
-  }
+function decode(value: string): string {
+  if (typeof window === 'undefined') return value
+  try { return decodeURIComponent(atob(value)) } catch { return value }
 }
 
 export function saveUser(user: User): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(USER_KEY, JSON.stringify(user))
+  if (typeof window === 'undefined') return
+  const safe: User = {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    display_name: user.display_name,
   }
+  sessionStorage.setItem(USER_KEY, encode(JSON.stringify(safe)))
 }
 
 export function getUser(): User | null {
-  if (typeof window !== 'undefined') {
-    const raw = localStorage.getItem(USER_KEY)
-    if (raw) {
-      try {
-        return JSON.parse(raw) as User
-      } catch {
-        return null
-      }
-    }
+  if (typeof window === 'undefined') return null
+  const raw = sessionStorage.getItem(USER_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(decode(raw)) as User
+  } catch {
+    removeUser()
+    return null
   }
-  return null
 }
 
 export function removeUser(): void {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(USER_KEY)
-  }
+  if (typeof window === 'undefined') return
+  sessionStorage.removeItem(USER_KEY)
 }
 
 export function isLoggedIn(): boolean {
-  return !!getToken()
+  return getUser() !== null
 }
 
-export function logout(): void {
-  removeToken()
+export async function fetchMe(): Promise<User | null> {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080/api/v1'
+  try {
+    const res = await fetch(`${apiUrl}/auth/me`, {
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      removeUser()
+      return null
+    }
+    const data = await res.json()
+    const user = data.user as User
+    saveUser(user)
+    return user
+  } catch {
+    return null
+  }
+}
+
+// logout() calls the backend to clear the httpOnly cookie, then clears local user cache.
+export async function logout(): Promise<void> {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080/api/v1'
+  try {
+    await fetch(`${apiUrl}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+  } catch {
+    // best-effort - still clear local state even if request fails
+  }
   removeUser()
 }

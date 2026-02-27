@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"edu-web-backend/config"
 	"edu-web-backend/internal/handlers"
 	"edu-web-backend/internal/middleware"
@@ -12,6 +13,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Config error: %v", err)
@@ -23,23 +26,23 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := db.Migrate(); err != nil {
+	if err := db.Migrate(ctx); err != nil {
 		log.Fatalf("Migration error: %v", err)
 	}
 	log.Println("Database migrated successfully")
 
-	if err := db.MigrateAuth(); err != nil {
+	if err := db.MigrateAuth(ctx); err != nil {
 		log.Fatalf("Auth migration error: %v", err)
 	}
 	log.Println("Auth tables migrated successfully")
 
-	if err := db.SeedData(); err != nil {
+	if err := db.SeedData(ctx); err != nil {
 		log.Printf("Seed warning: %v", err)
 	} else {
 		log.Println("Data seeded successfully")
 	}
 
-	if err := db.SeedScenarios(); err != nil {
+	if err := db.SeedScenarios(ctx); err != nil {
 		log.Printf("Scenario seed warning: %v", err)
 	} else {
 		log.Println("Psychological scenarios seeded successfully")
@@ -53,7 +56,8 @@ func main() {
 		AllowOrigins:     []string{cfg.FrontendURL, "http://localhost:3000", "http://localhost:3001"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: true,
+		AllowCredentials: true, // required for cookies to be sent cross-origin
+		ExposeHeaders:    []string{"Set-Cookie"},
 	}))
 
 	api := r.Group("/api/v1")
@@ -70,6 +74,7 @@ func main() {
 		{
 			auth.POST("/register", h.Register)
 			auth.POST("/login", h.Login)
+			auth.POST("/logout", h.Logout)
 			auth.GET("/me", middleware.AuthRequired(), h.GetMe)
 		}
 

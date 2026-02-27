@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"edu-web-backend/internal/repository"
 	"encoding/base64"
 	"strings"
@@ -87,14 +88,14 @@ func detectCategory(msg string) string {
 	return ""
 }
 
-func buildAIResponse(message string, db *repository.DB) string {
+func buildAIResponse(ctx context.Context, message string, db *repository.DB) string {
 	msg := strings.ToLower(message)
 
 	// 1. Emergency check - self-harm keywords (highest priority)
 	emergencyKws := []string{"tu tu", "tu lam hai", "muon chet", "khong muon song", "ket thuc tat ca"}
 	for _, kw := range emergencyKws {
 		if strings.Contains(msg, kw) {
-			crisis, err := db.GetScenarioByKeyword("tu tu")
+			crisis, err := db.GetScenarioByKeyword(ctx, "tu tu")
 			if err == nil && crisis != nil {
 				return crisis.Response + "\n\n Meo: " + crisis.Tips
 			}
@@ -118,14 +119,14 @@ func buildAIResponse(message string, db *repository.DB) string {
 		}
 		for _, kw := range triggerKws {
 			if strings.Contains(msg, kw) {
-				scenario, err := db.GetScenarioByKeyword(kw)
+				scenario, err := db.GetScenarioByKeyword(ctx, kw)
 				if err == nil && scenario != nil && scenario.Category == category {
 					return scenario.Response + "\n\n Meo: " + scenario.Tips
 				}
 			}
 		}
 		// Fallback: random scenario from the detected category
-		scenario, err := db.GetScenarioByCategory(category)
+		scenario, err := db.GetScenarioByCategory(ctx, category)
 		if err == nil && scenario != nil {
 			return scenario.Response + "\n\n Meo: " + scenario.Tips
 		}

@@ -28,6 +28,21 @@ func generateToken(userID int) (string, error) {
 	return token.SignedString(getJWTSecret())
 }
 
+// setAuthCookie writes the JWT as an httpOnly cookie.
+// Secure=true is set only when not running on localhost so local dev still works.
+func setAuthCookie(c *gin.Context, token string) {
+	secure := os.Getenv("ENV") == "production"
+	c.SetCookie(
+		"eduhub_token", // name
+		token,          // value
+		86400,          // maxAge: 24h in seconds
+		"/",            // path
+		"",             // domain (empty = current host)
+		secure,         // Secure flag
+		true,           // HttpOnly – JS cannot read this
+	)
+}
+
 func (h *Handler) Register(c *gin.Context) {
 	var req struct {
 		Username    string `json:"username"`
@@ -61,7 +76,7 @@ func (h *Handler) Register(c *gin.Context) {
 		req.DisplayName = req.Username
 	}
 
-	existing, err := h.db.GetUserByUsername(req.Username)
+	existing, err := h.db.GetUserByUsername(c.Request.Context(), req.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
 		return
@@ -77,7 +92,7 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	user, err := h.db.CreateUser(req.Username, req.Email, string(hash), req.DisplayName)
+	user, err := h.db.CreateUser(c.Request.Context(), req.Username, req.Email, string(hash), req.DisplayName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
@@ -89,8 +104,9 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
+	setAuthCookie(c, token)
+
 	c.JSON(http.StatusCreated, gin.H{
-		"token": token,
 		"user": gin.H{
 			"id":           user.ID,
 			"username":     user.Username,
@@ -118,7 +134,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	user, err := h.db.GetUserByUsername(req.Username)
+	user, err := h.db.GetUserByUsername(c.Request.Context(), req.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
 		return
@@ -139,8 +155,9 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	setAuthCookie(c, token)
+
 	c.JSON(http.StatusOK, gin.H{
-		"token": token,
 		"user": gin.H{
 			"id":           user.ID,
 			"username":     user.Username,
@@ -150,6 +167,13 @@ func (h *Handler) Login(c *gin.Context) {
 	})
 }
 
+func (h *Handler) Logout(c *gin.Context) {
+	// Overwrite the cookie with an empty value and maxAge=0 to delete it
+	secure := os.Getenv("ENV") == "production"
+	c.SetCookie("eduhub_token", "", -1, "/", "", secure, true)
+	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+}
+
 func (h *Handler) GetMe(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -157,7 +181,7 @@ func (h *Handler) GetMe(c *gin.Context) {
 		return
 	}
 
-	user, err := h.db.GetUserByID(userID.(int))
+	user, err := h.db.GetUserByID(c.Request.Context(), userID.(int))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
 		return

@@ -38,7 +38,7 @@ func (h *Handler) SendDirectMessage(c *gin.Context) {
 		return
 	}
 
-	receiver, err := h.db.GetUserByID(req.ReceiverID)
+	receiver, err := h.db.GetUserByID(c.Request.Context(), req.ReceiverID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
 		return
@@ -48,7 +48,7 @@ func (h *Handler) SendDirectMessage(c *gin.Context) {
 		return
 	}
 
-	msg, err := h.db.SaveMessage(senderID.(int), req.ReceiverID, req.Content)
+	msg, err := h.db.SaveMessage(c.Request.Context(), senderID.(int), req.ReceiverID, req.Content)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save message"})
 		return
@@ -71,7 +71,7 @@ func (h *Handler) GetDirectMessages(c *gin.Context) {
 		return
 	}
 
-	msgs, err := h.db.GetConversation(userID.(int), otherUserID)
+	msgs, err := h.db.GetConversation(c.Request.Context(), userID.(int), otherUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch messages"})
 		return
@@ -87,7 +87,7 @@ func (h *Handler) GetUsers(c *gin.Context) {
 		return
 	}
 
-	users, err := h.db.GetUserList(userID.(int))
+	users, err := h.db.GetUserList(c.Request.Context(), userID.(int))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch users"})
 		return

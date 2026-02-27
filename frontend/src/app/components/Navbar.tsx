@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { isLoggedIn, getUser, logout } from '@/lib/auth'
+import { isLoggedIn, getUser, fetchMe, logout } from '@/lib/auth'
 
 export default function Navbar() {
   const router = useRouter()
@@ -11,28 +11,36 @@ export default function Navbar() {
   const [displayName, setDisplayName] = useState('')
 
   useEffect(() => {
-    const status = isLoggedIn()
-    setLoggedIn(status)
-    if (status) {
-      const user = getUser()
-      setDisplayName(user?.display_name || user?.username || '')
+    // Fast path: use cached sessionStorage user
+    const cached = getUser()
+    if (cached) {
+      setLoggedIn(true)
+      setDisplayName(cached.display_name || cached.username)
+      return
     }
+    // Slow path: verify httpOnly cookie via backend and rehydrate
+    fetchMe().then(user => {
+      if (user) {
+        setLoggedIn(true)
+        setDisplayName(user.display_name || user.username)
+      }
+    })
   }, [])
 
-  function handleLogout() {
-    logout()
+  async function handleLogout() {
+    await logout()
     setLoggedIn(false)
     setDisplayName('')
     router.push('/')
   }
 
   const links = [
-    { href: '/', label: 'Trang chu', icon: '🏠' },
-    { href: '/videos', label: 'Video hoc tap', icon: '🎬' },
-    { href: '/audios', label: 'Am thanh song nao', icon: '🎵' },
-    { href: '/chatbot', label: 'Buddy AI', icon: '🤖' },
-    { href: '/qrcodes', label: 'Ma QR', icon: '📱' },
-    { href: '/messages', label: 'Tin nhan', icon: '💬' },
+    { href: '/', label: 'Trang chu', icon: '' },
+    { href: '/videos', label: 'Video hoc tap', icon: '' },
+    { href: '/audios', label: 'Am thanh song nao', icon: '' },
+    { href: '/chatbot', label: 'Buddy AI', icon: '' },
+    { href: '/qrcodes', label: 'Ma QR', icon: '' },
+    { href: '/messages', label: 'Tin nhan', icon: '' },
   ]
 
   return (
@@ -40,7 +48,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2 font-bold text-xl">
-            <span className="text-2xl">📚</span>
+            <span className="text-2xl"></span>
             <span>EduHub</span>
           </Link>
           <div className="hidden md:flex items-center gap-1">
@@ -58,10 +66,8 @@ export default function Navbar() {
                 <span className="text-sm text-blue-200 px-2">
                   Xin chao, <span className="text-white font-semibold">{displayName}</span>
                 </span>
-                <button
-                  onClick={handleLogout}
-                  className="px-3 py-1.5 text-sm font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-                >
+                <button onClick={handleLogout}
+                  className="px-3 py-1.5 text-sm font-medium bg-white/20 hover:bg-white/30 rounded-lg transition-colors">
                   Dang xuat
                 </button>
               </>
@@ -79,7 +85,7 @@ export default function Navbar() {
             )}
           </div>
           <button onClick={() => setOpen(!open)} className="md:hidden p-2 rounded-lg hover:bg-white/20">
-            {open ? '✕' : '☰'}
+            {open ? 'x' : '='}
           </button>
         </div>
         {open && (
@@ -96,10 +102,8 @@ export default function Navbar() {
                   <span className="px-4 py-1 text-sm text-blue-200">
                     Xin chao, <span className="text-white font-semibold">{displayName}</span>
                   </span>
-                  <button
-                    onClick={() => { handleLogout(); setOpen(false) }}
-                    className="text-left px-4 py-2 rounded-lg hover:bg-white/20 text-sm font-medium"
-                  >
+                  <button onClick={() => { handleLogout(); setOpen(false) }}
+                    className="text-left px-4 py-2 rounded-lg hover:bg-white/20 text-sm font-medium">
                     Dang xuat
                   </button>
                 </>

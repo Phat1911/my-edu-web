@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"edu-web-backend/internal/models"
 	"edu-web-backend/internal/repository"
 	"net/http"
@@ -18,7 +19,7 @@ func NewHandler(db *repository.DB) *Handler {
 }
 
 func (h *Handler) GetVideos(c *gin.Context) {
-	videos, err := h.db.GetAllVideos()
+	videos, err := h.db.GetAllVideos(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -30,7 +31,7 @@ func (h *Handler) GetVideos(c *gin.Context) {
 }
 
 func (h *Handler) GetAudios(c *gin.Context) {
-	audios, err := h.db.GetAllAudios()
+	audios, err := h.db.GetAllAudios(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -42,7 +43,7 @@ func (h *Handler) GetAudios(c *gin.Context) {
 }
 
 func (h *Handler) GetQRCodes(c *gin.Context) {
-	qrs, err := h.db.GetAllQRCodes()
+	qrs, err := h.db.GetAllQRCodes(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -73,7 +74,7 @@ func (h *Handler) GenerateQR(c *gin.Context) {
 		return
 	}
 
-	qr, err := h.db.SaveQRCode(req.Label, req.TargetURL, req.Type, qrData)
+	qr, err := h.db.SaveQRCode(c.Request.Context(), req.Label, req.TargetURL, req.Type, qrData)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -87,7 +88,7 @@ func (h *Handler) GetChatHistory(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id required"})
 		return
 	}
-	msgs, err := h.db.GetChatHistory(sessionID)
+	msgs, err := h.db.GetChatHistory(c.Request.Context(), sessionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -123,14 +124,16 @@ func (h *Handler) SendChat(c *gin.Context) {
 		return
 	}
 
-	if err := h.db.SaveChatMessage(req.SessionID, "user", req.Message); err != nil {
+	if err := h.db.SaveChatMessage(c.Request.Context(), req.SessionID, "user", req.Message); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	response := buildAIResponse(req.Message, h.db)
+	response := buildAIResponse(c.Request.Context(), req.Message, h.db)
 
-	if err := h.db.SaveChatMessage(req.SessionID, "assistant", response); err != nil {
+	// Use context.WithoutCancel so a client disconnect does not orphan the assistant message.
+	saveCtx := context.WithoutCancel(c.Request.Context())
+	if err := h.db.SaveChatMessage(saveCtx, req.SessionID, "assistant", response); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
