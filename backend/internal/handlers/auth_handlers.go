@@ -6,18 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"edu-web-backend/internal/config"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
-
-func getJWTSecret() []byte {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "eduweb-secret-key-2026"
-	}
-	return []byte(secret)
-}
 
 func generateToken(userID int) (string, error) {
 	claims := jwt.MapClaims{
@@ -25,7 +19,7 @@ func generateToken(userID int) (string, error) {
 		"exp":     time.Now().Add(24 * time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(getJWTSecret())
+	return token.SignedString(config.JWTSecret())
 }
 
 // setAuthCookie writes the JWT as an httpOnly cookie.

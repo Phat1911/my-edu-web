@@ -2,27 +2,20 @@ package middleware
 
 import (
 	"net/http"
-	"os"
 	"strings"
+
+	"edu-web-backend/internal/config"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
-
-func getJWTSecret() []byte {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "eduweb-secret-key-2026"
-	}
-	return []byte(secret)
-}
 
 func parseToken(tokenStr string) (int, error) {
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
 		}
-		return getJWTSecret(), nil
+		return config.JWTSecret(), nil
 	})
 	if err != nil || !token.Valid {
 		return 0, err
